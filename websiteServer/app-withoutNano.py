@@ -1,217 +1,534 @@
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
-import os
-from werkzeug.utils import secure_filename
-import json
-# from google import genai
-from ultralytics import YOLO
-import matplotlib.pyplot as plt
-import cv2
-from openai import OpenAI
+{% extends "index.html" %}
 
-classes = {
-    "Apple___Apple_scab": "Apple Scab",
-    "Apple___Black_rot": "Black Rot",
-    "Apple___Cedar_apple_rust": "Cedar Apple Rust",
-    "Apple___healthy": "Healthy Apple",
-    "Blueberry___healthy": "Healthy Blueberry",
-    "Cherry_(including_sour)___Powdery_mildew": "Powdery Mildew",
-    "Cherry_(including_sour)___healthy": "Healthy Cherry",
-    "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot": "Gray Leaf Spot",
-    "Corn_(maize)___Common_rust_": "Common Rust",
-    "Corn_(maize)___Northern_Leaf_Blight": "Northern Leaf Blight",
-    "Corn_(maize)___healthy": "Healthy Corn",
-    "Grape___Black_rot": "Black Rot",
-    "Grape___Esca_(Black_Measles)": "Esca (Black Measles)",
-    "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)": "Leaf Blight (Isariopsis Leaf Spot)",
-    "Grape___healthy": "Healthy Grape",
-    "Orange___Haunglongbing_(Citrus_greening)": "Huanglongbing (Citrus greening)",
-    "Peach___Bacterial_spot": "Bacterial Spot",
-    "Peach___healthy": "Healthy Peach",
-    "Pepper,_bell___Bacterial_spot": "Bacterial Spot",
-    "Pepper,_bell___healthy": "Healthy Pepper Bell",
-    "Potato___Early_blight": "Early Blight",
-    "Potato___Late_blight": "Late Blight",
-    "Potato___healthy": "Healthy Potato",
-    "Raspberry___healthy": "Healthy Raspberry",
-    "Soybean___healthy": "Healthy Soybean",
-    "Squash___Powdery_mildew": "Powdery Mildew",
-    "Strawberry___Leaf_scorch": "Leaf Scorch",
-    "Strawberry___healthy": "Healthy Strawberry",
-    "Tomato___Bacterial_spot": "Bacterial Spot",
-    "Tomato___Early_blight": "Early Blight",
-    "Tomato___Late_blight": "Late Blight",
-    "Tomato___Leaf_Mold": "Leaf Mold",
-    "Tomato___Septoria_leaf_spot": "Septoria Leaf Spot",
-    "Tomato___Spider_mites Two-spotted_spider_mite": "Two-spotted Spider Mite",
-    "Tomato___Target_Spot": "Target Spot",
-    "Tomato___Yellow_Leaf_Curl_Virus": "Yellow Leaf Curl Virus",
-    "Tomato___Tomato_mosaic_virus": "Tomato Mosaic Virus",
-    "Tomato___healthy": "Healthy Tomato"
-}
-app = Flask(__name__)
-
-UPLOAD_FOLDER = os.path.join(app.root_path, 'uploads')
-STATIC_FOLDER = os.path.join(app.root_path, 'static')
-STATIC_PREDICTIONS_FOLDER = os.path.join(STATIC_FOLDER, "predictions")
-PREDICTIONS_FOLDER = os.path.join(app.root_path, 'data/predictions.json')
-
-model = YOLO('website/static/best.pt')
-
-# Returns JSON of historical predictions
-def load_predictions():
-    with open(PREDICTIONS_FOLDER, 'r') as f:
-        return json.load(f)
-
-# Writes a new prediction to predictions.json
-def save_predictions(entry):
-    predictions = load_predictions()
-    predictions.append(entry)
-    with open(PREDICTIONS_FOLDER, 'w') as f:
-        if predictions and predictions[-1] == entry:
-            ordered = [entry] + predictions[:-1]
-        else:
-            ordered = [entry] + predictions
-        json.dump(ordered, f)
-
-# Main code; uses the model to predict both leaf location and type of disease
-def predict_model(index, path):
-    results = model.predict(os.path.join(path, "base.jpg"))
-    save_path = os.path.join(path, "predictions")
-    img = cv2.imread(os.path.join(path, "base.jpg"))
-    annotated_frame = results[0].plot()
-    cv2.imwrite(os.path.join(path, "annotated.jpg"), annotated_frame)
-    boxes = results[0].boxes
-    data = {
-        "file_url": f"/static/predictions/folder_{index}/annotated.jpg",
-        "file_index": index,
-        "predictions": {}
+{% block content %}
+<style>
+    /* CSS styling */
+    body {
+        padding-top: 70px;
+        background: var(--bg-gradient);
+        font-family: 'Inter', 'Segoe UI', sans-serif;
+        color: var(--text-color);
     }
-    three_most_confident_predictions = []
-    three_most_confident_values = []
-    three_most_confident_files = []
-    for i in range(len(boxes)):
-        # Crops leaves from bounding boxes
-        x1, y1, x2, y2 = map(int, boxes.xyxy[i])
-        conf = float(boxes.conf[i])
-        cls_id = int(boxes.cls[i])
-        screenshot = img[y1:y2, x1:x2]
-        crop_path = os.path.join(path, f"crop_{i}.jpg")
-        screenshot = cv2.resize(screenshot, (256, 256))
-        cv2.imwrite(crop_path, screenshot)
-        crop_url = f"/static/predictions/folder_{index}/crop_{i}.jpg"
-        data["predictions"][f"crop_{i}"] = {
-            "bounding_box": [x1, y1, x2, y2],
-            "class_id": cls_id,
-            "class_name": classes[model.names[cls_id]],
-            "confidence": conf,
-            "crop_url": crop_url
+
+    .centered-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2rem;
+    }
+
+    .upload-section {
+        background: var(--panel-bg);
+        border-radius: 1rem;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+        padding: 2rem;
+        text-align: center;
+        width: 100%;
+        max-width: 700px;
+        border: 1px solid var(--border);
+    }
+
+    .upload-section label {
+        font-weight: 600;
+        margin-bottom: 1rem;
+        display: block;
+        color: var(--accent);
+    }
+
+    input[type="file"] {
+        background: var(--card-bg);
+        color: var(--text-color);
+        border: 1px solid var(--border);
+    }
+
+    #preview-img {
+        display: none;
+        border-radius: 0.75rem;
+        border: 1px solid var(--border);
+        margin-top: 1rem;
+        padding: 4px;
+        max-height: 300px;
+        object-fit: contain;
+        background-color: var(--card-bg);
+    }
+
+    h2 {
+        color: var(--accent);
+        font-weight: 700;
+    }
+
+    .carousel-control-prev-icon,
+    .carousel-control-next-icon {
+        background-color: var(--accent);
+        border-radius: 50%;
+        padding: 10px;
+    }
+
+    .card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s;
+        color: var(--text-color);
+    }
+
+    .card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.12);
+    }
+
+    .card-img-top {
+        border-top-left-radius: 1rem;
+        border-top-right-radius: 1rem;
+        background-color: var(--panel-bg);
+        padding: 10px;
+    }
+
+    .card-title {
+        color: var(--accent);
+        font-weight: 600;
+    }
+
+    .table {
+        background: var(--panel-bg);
+        color: var(--text-color);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+    .table th,
+    .table td {
+        vertical-align: middle;
+        text-align: center;
+        border-color: var(--border);
+    }
+
+    .analyse-btn {
+        background-color: var(--success);
+        color: #fff;
+        border: none;
+        transition: background-color 0.2s ease;
+    }
+
+    .analyse-btn:hover {
+        background-color: var(--accent-600);
+    }
+
+    .analysis-result {
+        background: var(--panel-bg);
+        border-left: 4px solid var(--accent);
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        color: var(--text-color);
+    }
+
+    .form-control.w-auto {
+        border-radius: 0.5rem;
+        background: var(--card-bg);
+        color: var(--text-color);
+        border: 1px solid var(--border);
+    }
+
+    .btn-success {
+        background-color: var(--success);
+        border-radius: 0.5rem;
+        border: none;
+        color: #fff;
+    }
+
+    .btn-success:hover {
+        background-color: var(--accent-600);
+    }
+
+    label.form-label {
+        color: var(--accent);
+    }
+
+    .text-muted {
+        color: var(--muted) !important;
+    }
+
+    .text-success {
+        color: var(--accent) !important;
+    }
+
+    .text-danger {
+        color: var(--danger) !important;
+    }
+
+    .chart-controls { gap: .5rem; }
+    .chart-controls .btn-check { position: absolute; left: -9999px; }
+    .chart-controls label.btn {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: .5rem .75rem;
+        border-radius: .5rem;
+        background: var(--card-bg);
+        color: var(--text-color);
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+        box-shadow: none;
+    }
+
+    .chart-controls label.btn:hover,
+    .chart-controls label.btn:focus {
+        background: color-mix(in srgb, var(--accent) 10%, var(--card-bg) 90%);
+    }
+
+    .chart-controls label.btn span {
+        display: block;
+        font-size: .9rem;
+        line-height: 1.25;
+    }
+</style>
+
+<script>
+    $(document).ready(function () {
+        classes = {
+            "Apple___Apple_scab": "Apple Scab",
+            "Apple___Black_rot": "Black Rot",
+            "Apple___Cedar_apple_rust": "Cedar Apple Rust",
+            "Apple___healthy": "Healthy Apple",
+            "Blueberry___healthy": "Healthy Blueberry",
+            "Cherry_(including_sour)___Powdery_mildew": "Powdery Mildew",
+            "Cherry_(including_sour)___healthy": "Healthy Cherry",
+            "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot": "Gray Leaf Spot",
+            "Corn_(maize)___Common_rust_": "Common Rust",
+            "Corn_(maize)___Northern_Leaf_Blight": "Northern Leaf Blight",
+            "Corn_(maize)___healthy": "Healthy Corn",
+            "Grape___Black_rot": "Black Rot",
+            "Grape___Esca_(Black_Measles)": "Esca (Black Measles)",
+            "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)": "Leaf Blight (Isariopsis Leaf Spot)",
+            "Grape___healthy": "Healthy Grape",
+            "Orange___Haunglongbing_(Citrus_greening)": "Huanglongbing (Citrus greening)",
+            "Peach___Bacterial_spot": "Bacterial Spot",
+            "Peach___healthy": "Healthy Peach",
+            "Pepper,_bell___Bacterial_spot": "Bacterial Spot",
+            "Pepper,_bell___healthy": "Healthy Pepper Bell",
+            "Potato___Early_blight": "Early Blight",
+            "Potato___Late_blight": "Late Blight",
+            "Potato___healthy": "Healthy Potato",
+            "Raspberry___healthy": "Healthy Raspberry",
+            "Soybean___healthy": "Healthy Soybean",
+            "Squash___Powdery_mildew": "Powdery Mildew",
+            "Strawberry___Leaf_scorch": "Leaf Scorch",
+            "Strawberry___healthy": "Healthy Strawberry",
+            "Tomato___Bacterial_spot": "Bacterial Spot",
+            "Tomato___Early_blight": "Early Blight",
+            "Tomato___Late_blight": "Late Blight",
+            "Tomato___Leaf_Mold": "Leaf Mold",
+            "Tomato___Septoria_leaf_spot": "Septoria Leaf Spot",
+            "Tomato___Spider_mites Two-spotted_spider_mite": "Two-spotted Spider Mite",
+            "Tomato___Target_Spot": "Target Spot",
+            "Tomato___Yellow_Leaf_Curl_Virus": "Yellow Leaf Curl Virus",
+            "Tomato___Tomato_mosaic_virus": "Tomato Mosaic Virus",
+            "Tomato___healthy": "Healthy Tomato"
+        };
+
+        // Get generative AI analysis on button click
+        
+        $(".analyse-btn").on("click", function (e) {
+            e.preventDefault();
+            var button = $(this);
+            var classStr = button.attr("class") || "";
+            var datumMatch = classStr.match(/btn(\d+)/);
+            var pMatch = classStr.match(/btn-s-(\d+)/);
+            var datumIndex = datumMatch ? datumMatch[1] : "0";
+            var pIndex = pMatch ? pMatch[1] : "0";
+            var prediction = button.data("pred");
+            var resultDiv = button.closest(".card-body").find(".analysis-result.analysis-" + datumIndex + ".analysis-s-" + pIndex);
+            resultDiv.html("<p>Loading analysis...</p>");
+
+            // AJAX request to get analysis
+            $.ajax({
+                url: `/analyze/${prediction}`,
+                method: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({ prediction: prediction }),
+                success: function (response) {
+                    resultDiv.html("<h6>Analysis:</h6><p>" + response + "</p>");
+                    // Save analysis to server with AJAX
+                    $.ajax({
+                        url: "/save",
+                        method: "POST",
+                        contentType: "application/json",
+                        data: JSON.stringify({
+                            datumIndex: parseInt(datumIndex, 10),
+                            pIndex: parseInt(pIndex, 10),
+                            pred: response
+                        }),
+                        success: function () {
+                            resultDiv.append("<div class='text-success mt-2'>Saved.</div>");
+                        },
+                        error: function () {
+                            resultDiv.append("<div class='text-danger mt-2'>Error saving analysis.</div>");
+                        }
+                    });
+                },
+                error: function () {
+                    resultDiv.html("<p class='text-danger'>Error retrieving analysis.</p>");
+                }
+            });
+        });
+
+        // Image preview before upload
+        var fileInput = $('input[name="img"]');
+        fileInput.on('change', function () {
+            var file = this.files && this.files[0];
+            var img = $('#preview-img');
+            if (!file) {
+                img.hide().attr('src', '');
+                return;
+            }
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                img.attr('src', e.target.result).fadeIn();
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Chart rendering logic
+        function enumerate(array, offset = 0, indexOnly = false) {
+            return array.map((value, index) => (indexOnly ? index + offset: [index + offset, value]));
         }
-        if len(three_most_confident_predictions) < 3:
-            three_most_confident_predictions.append(classes[model.names[cls_id]])
-            three_most_confident_values.append(conf)
-            three_most_confident_files.append(crop_url)
-        else:
-            min_conf_index = three_most_confident_values.index(min(three_most_confident_values))
-            if conf > three_most_confident_values[min_conf_index]:
-                three_most_confident_predictions[min_conf_index] = classes[model.names[cls_id]]
-                three_most_confident_values[min_conf_index] = conf
-                three_most_confident_files[min_conf_index] = crop_url
-    with open(os.path.join(path, "data.json"), 'w') as f:
-        json.dump(data, f)
-    while len(three_most_confident_predictions) < 3:
-        three_most_confident_predictions.append("None")
-    while len(three_most_confident_files) < 3:
-        three_most_confident_files.append("")
-    while len(three_most_confident_values) < 3:
-        three_most_confident_values.append(0.0)
-    return three_most_confident_predictions, three_most_confident_files, three_most_confident_values
 
-def generate_response(result):
-    if "Healthy" in result:
-        content = f"My plant is {result}. How might I prepare for potential diseases?"
-    else:
-        content = f"My plant has {result}. Present some solutions in point form, under 60 words long. Write your response and suggestions not in markdown but in HTML surrounded by a <p>."
-        client = OpenAI(api_key="sk-00f4b5e7e8514c3797af6e8db63b189b", base_url="https://api.deepseek.com")
+        chart = null;
+        function render_chart(additional_param = null) {
+            chart != null ? chart.destroy() : null;
+            // Ignore this syntax error, it works perfectly
+            const data = {{ data|tojson }};
+            selection = $("input[name='btnradio']:checked").index()/2;
+            // Prepare sets of data for the three chart types
+            // 1. Number of types of diseases against time
+            // 2. Number of detected disease against time
+            // 3. Occurrence of a disease alongside all other diseases
+            var historicalTypesQuantity = [];
+                for (entry of data) {
+                    historicalTypesQuantity.push(entry.boxes_quan);
+                }
+            
+            var historicalQuantity = [];
+            for (entry of data) {
+                var count = 0;
+                for (type of entry.types){
+                    if (type == additional_param){
+                        count += 1;
+                    }
+                }
+                historicalQuantity.push(count);
+            }
 
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant"},
-                {"role": "user", "content": content},
-        ],
-            max_tokens=1024,
-            temperature=0.7,
-            stream=False
-        )
-        return response.choices[0].message.content
-    return "Your plant is healthy! Keep up the good work!"
+            // Calculate occurrences of each disease type by looping through entries and reducing using summation
+            var historicalOccurences = [];
+            initialValue = [];
+            for (type of Object.values(classes)){
+                initialValue.push(0);
+            }
+            for (entry of data){
+                classesQuan = []
+                for (type of Object.values(classes)){
+                    classesQuan.push(0);
+                }
+                for (type of entry.types){
+                    classIndex = Object.values(classes).indexOf(type);
+                    classesQuan[classIndex] += 1;
+                }
+                historicalOccurences.push(classesQuan)
+            }
+            historicalOccurences = historicalOccurences.reduce((acc, curr) => {
+                for (let i = 0; i < curr.length; i++) {
+                    acc[i] = acc[i] + curr[i];
+                }
+                return acc;
+            }, initialValue);
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
+            // Render chart using Chart.js
+            var ctx = document.getElementById('chart')
+            chart = new Chart(ctx, {
+                type: selection != 2? "line": "bar",
+                data: {
+                    labels: [enumerate(historicalTypesQuantity, 1, true), enumerate(historicalQuantity, 1, true), Object.values(classes)][selection? selection: 0],
+                    datasets: [{
+                        label: ["Number of types of diseases against time", `Number of detected ${additional_param} against time`, `Occurrence of ${additional_param} alongside all other diseases`][selection],
+                        data: [historicalTypesQuantity, historicalQuantity, historicalOccurences][selection],
+                        borderColor: "rgb(67, 160, 71)",
+                        backgroundColor: "rgb(67, 160, 71)",
+                        fill: false,
+                        tension: 0.1,
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: "rgb(67, 160, 71)"
+                            },
+                            grid: {
+                                color: "rgba(67, 160, 71, 0.3)"
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: "rgb(67, 160, 71)"
+                            },
+                            grid: {
+                                color: "rgba(67, 160, 71, 0.3)"
+                            }
+                        }
+                    }
+                }
+            })
+        }
 
-@app.route("/analyze/<pred>", methods=['GET', 'POST'])
-def predict(pred):
-    return generate_response(pred)
+        render_chart();
 
-@app.route("/about")
-def about():
-    return render_template('about.html')
+        // Re-render chart on carousel navigation, new file upload, or radio button change
+        $(".carousel-control, .file-submit").on("click", function () {
+            render_chart();
+        });
 
-@app.route('/save', methods=['POST'])
-def save_json():
-    data = request.get_json(force=True)
-    try:
-        datumIndex = int(data.get('datumIndex'))
-        pIndex = int(data.get('pIndex'))
-        pred = data.get('pred', '')
-    except Exception:
-        return jsonify({'status': 'bad_request'}), 400
+        $("#btnradio1").on("change", function () {
+            if (this.checked) {
+                render_chart();
+            }
+        });
+        $("#btnradio2").on("change", function () {
+            if (this.checked) {
+                render_chart("Healthy Strawberry");
+            }
+        });
+        $("#btnradio3").on("change", function () {
+            if (this.checked) {
+                render_chart("Healthy Strawberry");
+            }
+        });
+    });
+</script>
 
-    predictions = load_predictions()
-    if 0 <= datumIndex < len(predictions):
-        analyses = predictions[datumIndex].get("analyses", ["", "", ""])
-        if 0 <= pIndex < len(analyses):
-            analyses[pIndex] = pred
-            predictions[datumIndex]["analyses"] = analyses
-            with open(PREDICTIONS_FOLDER, 'w') as f:
-                json.dump(predictions, f)
-            return jsonify({'status': 'ok'})
-    return jsonify({'status': 'not_found'}), 404
+<!-- Main HTML content -->
+<div class="container centered-content">
+    <!-- File upload section -->
+    <div class="upload-section">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="img">📁 Upload an image for prediction</label>
+            <input name="img" type="file" accept=".jpg,.png,.jpeg" class="form-control mb-3">
+            <button type="submit" class="btn btn-success px-4 file-submit">Predict</button>
+            <img id="preview-img" src="" alt="Preview">
+        </form>
+    </div>
 
-@app.route('/predict', methods=['GET', 'POST'])
-def index():
-    prediction = None
-    file_url = None
-    if request.method == 'POST':
-        if 'img' in request.files:
-            file = request.files['img']
-            if file and file.filename:
-                predictions = load_predictions()
-                predictions_length = len(predictions)
-                filename = secure_filename(file.filename)
-                folder_path = os.path.join(STATIC_PREDICTIONS_FOLDER, f"folder_{predictions_length}")
-                os.makedirs(folder_path, exist_ok=True)
-                save_path = os.path.join(folder_path, "base.jpg")
-                file.save(save_path)
-                file_url = f"/static/predictions/folder_{predictions_length}/base.jpg"
-                save_path = os.path.join(UPLOAD_FOLDER, filename)
-                file.save(save_path)
-                prediction, crops, confidences = predict_model(predictions_length, folder_path)
-                save_predictions({'file_url': file_url,
-                                    "annotated_url": f"/static/predictions/folder_{predictions_length}/annotated.jpg",
-                                    "prediction": prediction,
-                                    "prediction_data": [
-                                        {
-                                            "class_name": prediction[i],
-                                            "confidence": confidences[i],
-                                            "crop_url": crops[i]
-                                        } for i in range(3)
-                                    ],
-                                    "analyses": ["", "", ""]
-                                })
-    return render_template('predict.html', data=load_predictions(), quan=int(request.args.get("quan", 1)))
+    <h2 class="text-center mb-4">Uploaded Predictions</h2>
 
-if __name__ == '__main__':
+    <!-- The Jinja2 code loops through data sent from the server -->
+    {% set quan = quan %}
+    {% if data and data|length > 0 %}
+    <div id="predictionCarousel" class="carousel slide" data-bs-wrap="false">
+        <div class="carousel-inner">
+            <!-- Loops by incrementing by quan; to show quan cards at once -->
+            {% for i in range(0, data|length, quan) %}
+            <!-- A carousel element may only have one active item, so we must use multiple cards in one carousel-item -->
+            <div class="carousel-item {% if i == 0 %}active{% endif %}">
+                <div class="d-flex justify-content-center gap-3 flex-wrap">
+                    <!-- Loop through the data slice for a set of carousel-items -->
+                    {% for datum in data[i:i+quan] %}
+                    {% set datum_index = i + loop.index0 %}
+                    <div class="card">
+                        <img src="{{ datum.file_url }}" class="card-img-top mx-auto d-block" alt="Uploaded image"
+                            style="max-width: 20rem;">
+                        <br>
+                        <img src="{{ datum.annotated_url }}" class="card-img-top mx-auto d-block" alt="Annotated image"
+                            style="max-width: 20rem;">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Predictions</h5>
+                            <table class="table table-bordered text-center table-success">
+                                <thead>
+                                    <tr>
+                                        <th>Most likely</th>
+                                        <th>Second</th>
+                                        <th>Third</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <!-- Loop through predictions and show as table data -->
+                                        {% for p in datum.prediction %}
+                                        <td>{{ p }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    <tr>
+                                        <!-- Loop through prediction data for confidence and cropped image -->
+                                        {% for p in range(3) %}
+                                        <td>
+                                            <p>Confidence: {{ '%.2f' | format(datum.prediction_data[p]["confidence"] * 100) }}%</p>
+                                            <!-- Server saves one cropped image of the first three most likely predictions -->
+                                            <img src="{{ datum.prediction_data[p]['crop_url'] }}">
+                                            <br>
+                                            <button
+                                                class="analyse-btn btn btn-success btn{{ datum_index }} btn-s-{{ p }}"
+                                                data-pred="{{ datum.prediction[p] }}">Analyse</button>
+                                        </td>
+                                        {% endfor %}
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <!-- Analysis results go here -->
+                            {% for a in range(3) %}
+                            <div class="analysis-result text-start mt-2 analysis-{{ datum_index }} analysis-s-{{ a }}">
+                                <h3>{{ datum.prediction[a] }}</h3>
+                                {{ datum.analyses[a] | safe }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
 
-    app.run(debug=True)
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Carousel control buttons -->
+        <button class="carousel-control-prev carousel-control" type="button" data-bs-target="#predictionCarousel"
+            data-bs-slide="prev" aria-label="Previous">
+            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+            <span class="visually-hidden">Previous</span>
+        </button>
+        <button class="carousel-control-next carousel-control" type="button" data-bs-target="#predictionCarousel"
+            data-bs-slide="next" aria-label="Next">
+            <span class="carousel-control-next-icon" aria-hidden="true"></span>
+            <span class="visually-hidden">Next</span>
+        </button>
+    </div>
+
+    <!-- Chart section -->
+    <div class="d-flex p-2 flex-row align-items-start justify-content-center gap-4">
+        <div class="btn-group-vertical d-flex p-2 chart-controls" role="group" style="max-width: 260px;">
+            <input type="radio" class="btn-check chart-btn" name="btnradio" id="btnradio1" autocomplete="off" checked>
+            <label class="btn mb-2" for="btnradio1"><span>Plot number of types of diseases against time</span></label>
+
+            <input type="radio" class="btn-check chart-btn" name="btnradio" id="btnradio2" autocomplete="off">
+            <label class="btn mb-2" for="btnradio2"><span>Plot number of detected disease against time</span></label>
+
+            <input type="radio" class="btn-check chart-btn" name="btnradio" id="btnradio3" autocomplete="off">
+            <label class="btn mb-2" for="btnradio3"><span>Plot the occurrence of a disease alongside all other diseases</span></label>
+        </div>
+
+        <div class="flex-fill d-flex align-items-center justify-content-center p-2">
+            <canvas id="chart" style="width:100%; max-width:1000px; height:360px;"></canvas>
+        </div>
+    </div>
+
+    <!-- Form to set how many cards to show at once -->
+    <form method="GET" action="/predict" class="mb-4 d-flex gap-2 justify-content-center align-items-center">
+        <label for="carousel-quantity" class="form-label mb-0 fw-semibold">Show how many cards at once:</label>
+        <input id="carousel-quantity" name="quan" type="number" min="1" value="{{ quan }}" class="form-control w-auto">
+        <button type="submit" class="btn btn-success">Set</button>
+    </form>
+    {% else %}
+    <p class="text-center text-muted">No predictions yet. Upload an image above to get started!</p>
+    {% endif %}
+</div>
+{% endblock %}
