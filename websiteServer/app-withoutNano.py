@@ -6,7 +6,7 @@ from ultralytics import YOLO
 import matplotlib.pyplot as plt
 import cv2
 from openai import OpenAI
-import datetime
+from datetime import datetime
 
 classes = {
     "Apple___Apple_scab": "Apple Scab",
@@ -58,12 +58,23 @@ STATIC_FOLDER = os.path.join(app.root_path, 'static')
 STATIC_PREDICTIONS_FOLDER = os.path.join(STATIC_FOLDER, "predictions")
 PREDICTIONS_FOLDER = os.path.join(app.root_path, 'data/predictions.json')
 
+# Ensure necessary directories exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(STATIC_PREDICTIONS_FOLDER, exist_ok=True)
+os.makedirs(os.path.dirname(PREDICTIONS_FOLDER), exist_ok=True)
+if not os.path.exists(PREDICTIONS_FOLDER):
+    with open(PREDICTIONS_FOLDER, 'w') as f:
+        json.dump([], f)
+        
+# Load YOLO model
 model = YOLO('./static/best.pt')
 
+# Get predictions from file
 def load_predictions():
     with open(PREDICTIONS_FOLDER, 'r') as f:
         return json.load(f)
     
+# Write new predictions to file
 def save_predictions(entry):
     predictions = load_predictions()
     predictions.append(entry)
@@ -74,6 +85,7 @@ def save_predictions(entry):
             ordered = [entry] + predictions
         json.dump(ordered, f)
         
+# Main AI model prediction code
 def predict_model(index, path):
     results = model.predict(os.path.join(path, "base.jpg"))
     save_path = os.path.join(path, "predictions")
@@ -110,6 +122,7 @@ def predict_model(index, path):
             "confidence": conf,
             "crop_url": crop_url
         }
+        # Determine top 3 most confident predictions
         types_of_diseases.append(classes[model.names[cls_id]])
         if len(three_most_confident_predictions) < 3:
             three_most_confident_predictions.append(classes[model.names[cls_id]])
@@ -151,10 +164,6 @@ def generate_response(result):
             stream=False
         )
         return response.choices[0].message.content
-
-@app.route("/")
-def home():
-    return redirect(url_for('index'))
 
 # Redirect to /index from root (server initializes on /)
 @app.route("/")
@@ -231,11 +240,12 @@ def index():
                                     ],
                                     "analyses": ["", "", ""],
                                     "boxes_quan": boxes_quan,
-                                    "types": types
+                                    "types": types,
+                                    "date": datetime.now().strftime("%Y-%m-%d, %A"),
+                                    "time": datetime.now().strftime("%H:%M:%S")
                                 })
     return render_template('predict.html', data=load_predictions(), quan=int(request.args.get("quan", 1)), classes = classes)
 
 # Run the app
 if __name__ == '__main__':
     app.run(debug=True)
-
